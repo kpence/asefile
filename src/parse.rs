@@ -222,8 +222,13 @@ impl ParseInfo {
         (offset, deleted_frames)
     }
 
-    fn modify_tags_frame_positions_with_cels_replacements_and_get_delta_and_deleted_frames_and_extended_animations(&mut self, cels_replacements: &CelsReplacements) -> (i32, Vec<u16>, Vec<(String, u16)>) {
-        let mut total_offset = 0i32;
+    fn modify_tags_frame_positions_with_cels_replacements(
+        &mut self,
+        cels_replacements: &CelsReplacements,
+        total_offset: &mut i32,
+        total_deleted_frames: &mut Vec<u16>,
+        extended_frames: &mut Vec<(String, u16)>
+    ) {
         let mut total_deleted_frames: Vec<u16> = Vec::default();
         // First component of tuple is the from_frame
         let mut extended_frames: Vec<(String, u16)> = Vec::default();
@@ -233,9 +238,8 @@ impl ParseInfo {
                 extended_frames.push((cels_replacement.name.clone(), offset as u16));
             }
             total_deleted_frames.append(&mut deleted_frames);
-            total_offset += offset;
+            *total_offset += offset;
         }
-        (total_offset, total_deleted_frames, extended_frames)
     }
 
     fn build_tags_chunk_data(&self) -> Vec<u8> {
@@ -468,7 +472,6 @@ fn parse_frame<R: Read>(
 
     for chunk in chunks {
         let Chunk { chunk_type, data } = chunk;
-        //println!("chunk of chunk_type {:?} in frame {:?}", chunk_type, frame_id);
         match chunk_type {
             ChunkType::ColorProfile => {
                 let profile = color_profile::parse_chunk(&data)?;
@@ -492,7 +495,6 @@ fn parse_frame<R: Read>(
             }
             ChunkType::Tags => {
                 let tags = tags::parse_chunk(&data)?;
-                //println!("tags: {:?}", tags);
                 if frame_id == 0 {
                     parse_info.add_tags(tags);
                 } else {
@@ -502,12 +504,10 @@ fn parse_frame<R: Read>(
             ChunkType::Slice => {
                 let slice = slice::parse_chunk(&data)?;
                 parse_info.add_slice(slice);
-                //println!("Slice: {:#?}", slice);
             }
             ChunkType::UserData => {
                 let user_data = user_data::parse_userdata_chunk(&data)?;
                 parse_info.add_user_data(user_data)?;
-                //println!("Userdata: {:#?}", ud);
             }
             ChunkType::OldPalette04 => {
                 // An old palette chunk precedes the sprite UserData chunk.
@@ -829,7 +829,9 @@ fn get_aseprite_file_bytes_with_replaced_animation_cels<R: Read>(input: R, cels_
                     // Now I need to offset all the from_frames and to_frames.
                     // Apply the offsets to the frame positions in the parse_info's tag data
                     let mut extended_animations: Vec<(String, u16)> = Vec::default();
-                    (offset_to_num_frames, old_frame_id_to_be_deleted, extended_animations) = parse_info.modify_tags_frame_positions_with_cels_replacements_and_get_delta_and_deleted_frames_and_extended_animations(&cels_replacements);
+
+                    parse_info.modify_tags_frame_positions_with_cels_replacements(&cels_replacements, &mut offset_to_num_frames, &mut old_frame_id_to_be_deleted, &mut extended_animations);
+
                     for (tag_name, amount_extended) in extended_animations.iter() {
                         let mut from_frame = 0u32;
                         let mut default_frame_duration_ms = 0u16;
@@ -860,7 +862,6 @@ fn get_aseprite_file_bytes_with_replaced_animation_cels<R: Read>(input: R, cels_
         chunks_by_frame.push((frame_header, chunks));
     }
 
-
     // Remove frames due to shortening size of an animation
     let mut frame_id = 0;
     chunks_by_frame.retain(|chunks_by_frame| {
@@ -869,13 +870,11 @@ fn get_aseprite_file_bytes_with_replaced_animation_cels<R: Read>(input: R, cels_
         is_retain
     });
 
-    // Now insert frames to extended animations (set the frame duration in as well. Make sure that the cel replacement contains the defualt duration for that)
-
-    // I need to sort the extended_animations by which has the first from_frame
-
+    // Now insert frames to extended animations, frame_duration_ms is derived from default_frame_duration_ms from the `cels_replacement` input parameter.
     while extended_animations_heap.len() > 0 {
         if let Some((from_frame, amount_extended, default_frame_duration_ms)) = extended_animations_heap.pop() {
-            // insert frames into extended animation
+            // Insert blank frames into animation which is getting extended
+            // The cel chunks will be added later
             for _ in 0..amount_extended {
                 chunks_by_frame.insert(
                     from_frame as usize,
@@ -906,6 +905,17 @@ fn get_aseprite_file_bytes_with_replaced_animation_cels<R: Read>(input: R, cels_
         }
 
         // modify frame_header with reduced num_bytes and num_chunks
+        fn get_number_of_bytes_from_chunks(chunks: &Vec<Chunk>) -> u32 {
+            fn get_chunk_len(chunk: &Chunk) -> u32 {
+                (chunk.data.len() as u32) + (CHUNK_HEADER_SIZE as u32)
+            }
+            let mut num_bytes = 0;
+            for chunk in chunks {
+                num_bytes += get_chunk_len(chunk);
+            }
+            num_bytes
+        }
+
         frame_header.num_bytes = (FRAME_HEADER_SIZE as u32) + get_number_of_bytes_from_chunks(&chunks);
         frame_header.old_num_chunks = chunks.len() as u16;
         frame_header.new_num_chunks = chunks.len() as u32;
@@ -943,17 +953,6 @@ fn get_aseprite_file_bytes_with_replaced_animation_cels<R: Read>(input: R, cels_
     Ok(builder.bytes)
 }
 
-fn get_number_of_bytes_from_chunks(chunks: &Vec<Chunk>) -> u32 {
-    fn get_chunk_len(chunk: &Chunk) -> u32 {
-        (chunk.data.len() as u32) + (CHUNK_HEADER_SIZE as u32)
-    }
-    let mut num_bytes = 0;
-    for chunk in chunks {
-        num_bytes += get_chunk_len(chunk);
-    }
-    num_bytes
-}
-
 fn parse_frame_header_and_chunks_for_replacing_animation<R: Read>(
     reader: &mut AseReader<R>,
     frame_id: u16,
@@ -981,7 +980,6 @@ fn parse_frame_header_and_chunks_for_replacing_animation<R: Read>(
         new_num_chunks,
         num_bytes,
     };
-    println!("frame_header {:?}", frame_header);
 
     let num_chunks = if new_num_chunks == 0 {
         old_num_chunks as u32
@@ -995,11 +993,9 @@ fn parse_frame_header_and_chunks_for_replacing_animation<R: Read>(
 
     for chunk in &chunks {
         let Chunk { chunk_type, data } = chunk;
-        println!("chunk of chunk_type {:?} in frame {:?}", chunk_type, frame_id);
         match chunk_type {
             ChunkType::Tags => {
                 let tags = tags::parse_chunk(&data)?;
-                println!("frame_id {:?}, tags: {:?}", frame_id, tags);
                 if frame_id == 0 {
                     parse_info.add_tags(tags);
                 } else {
@@ -1007,7 +1003,7 @@ fn parse_frame_header_and_chunks_for_replacing_animation<R: Read>(
                 }
             }
             _ => {
-                debug!("Ignoring unsupported chunk type when reading file that is to have selected animations replaced: {:?}", chunk_type);
+                debug!("Ignoring unsupported chunk type when reading file that is to have selected animations replaced. chunk_type is: {:?}", chunk_type);
             }
         }
     }
