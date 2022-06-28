@@ -24,9 +24,17 @@ impl Tag {
         self.from_frame as u32
     }
 
+    pub fn set_from_frame(&mut self, from_frame: u32) {
+        self.from_frame = from_frame as u16;
+    }
+
     /// Last frame included in the tag.
     pub fn to_frame(&self) -> u32 {
         self.to_frame as u32
+    }
+
+    pub fn set_to_frame(&mut self, to_frame: u32) {
+        self.to_frame = to_frame as u16;
     }
 
     /// See [AnimationDirection] for details.

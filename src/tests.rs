@@ -626,3 +626,112 @@ fn gen_random_pixels() {
     img.save(&Path::new("tests/data/random-256x256.png")).unwrap();
 }
 // */
+
+// Takes the given Asefile and compares it against the reference AseFile.
+fn compare_with_reference_asefile(ase_file: AsepriteFile, ref_ase_file: &AsepriteFile) {
+    //let ref_ase_file = load_test_file(filename);
+
+    // dbg!(img.dimensions(), ref_rgba.dimensions());
+    assert_eq!(ase_file.size(), ref_ase_file.size());
+    assert_eq!(ase_file.num_frames(), ref_ase_file.num_frames());
+    assert_eq!(ase_file.num_layers(), ref_ase_file.num_layers());
+    assert_eq!(ase_file.pixel_format(), ref_ase_file.pixel_format());
+    // TODO assert_eq!(ase_file.palette(), ref_ase_file.palette());
+    // TODO I need to fully compare the reference ase file with the given ase file
+}
+
+#[test]
+fn test_push_word_bytes_builder() {
+    let mut bytes_builder = bytes_builder::BytesBuilder::default();
+    bytes_builder.push_word(1u16);
+    bytes_builder.push_word(65535u16);
+    assert_eq!(bytes_builder.bytes, vec![1, 0, 255, 255]);
+}
+
+//#[test]
+fn replace_animation_test_extension_and_shorten() {
+    let f = load_test_file("player");
+
+    let mut path = PathBuf::new();
+    path.push("tests");
+    path.push("data");
+    path.push(format!("{}.aseprite", "player"));
+
+    parse::replace_animation_cels(path, parse::CelsReplacements {
+        data: vec![
+            parse::CelsReplacementEntry {
+                data: vec![
+                    vec![
+                        parse::CelLayerFrameData {
+                            image: image::open("/tmp/player1.png").unwrap().into_rgba8(),
+                            x: 0i16,
+                            y: 0i16,
+                            opacity: 0xFF,
+                        },
+                    ],
+                ],
+                name: "InAirSideAttackSwipeDown".into(),
+                default_frame_duration_ms: 18u16,
+            },
+            parse::CelsReplacementEntry {
+                data: vec![
+                    vec![
+                        parse::CelLayerFrameData {
+                            image: image::open("/tmp/player1.png").unwrap().into_rgba8(),
+                            x: 0i16,
+                            y: 0i16,
+                            opacity: 0xFF,
+                        },
+                    ],
+                    vec![
+                        parse::CelLayerFrameData {
+                            image: image::open("/tmp/player1.png").unwrap().into_rgba8(),
+                            x: 0i16,
+                            y: 0i16,
+                            opacity: 0xFF,
+                        },
+                    ],
+                ],
+                name: "Skid".into(),
+                default_frame_duration_ms: 19u16,
+            },
+        ],
+    });
+    panic!(); // now I need to test this. Currently I'm doing this manually by eye
+}
+
+#[test]
+fn replace_animation_test_use_my_blender_files() {
+    let f = load_test_file("player");
+
+    let mut path = PathBuf::new();
+    path.push("tests");
+    path.push("data");
+    path.push(format!("{}.aseprite", "player"));
+
+    let num_blender_files = 50;
+    let mut cel_layer_frame_datas: Vec<Vec<parse::CelLayerFrameData>> = Vec::with_capacity(num_blender_files);
+    for file_name_number in 0..num_blender_files {
+        cel_layer_frame_datas.push(
+            vec![
+                parse::CelLayerFrameData {
+                    image: image::open(&format!("/tmp/{:04}.png", file_name_number)).unwrap().into_rgba8(),
+                    x: 0i16,
+                    y: 0i16,
+                    opacity: 0xFF,
+                },
+            ]
+        );
+    }
+
+    parse::replace_animation_cels(path, parse::CelsReplacements {
+        data: vec![
+            parse::CelsReplacementEntry {
+                data: cel_layer_frame_datas,
+                name: "InAirSideAttackSwipeDown".into(),
+                default_frame_duration_ms: 16u16,
+            },
+        ],
+    });
+    panic!(); // now I need to test this. Currently I'm doing this manually by eye
+}

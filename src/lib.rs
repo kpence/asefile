@@ -173,6 +173,7 @@ pub(crate) mod file;
 pub(crate) mod layer;
 pub(crate) mod palette;
 pub(crate) mod parse;
+pub(crate) mod bytes_builder;
 mod pixel;
 mod reader;
 pub(crate) mod slice;
